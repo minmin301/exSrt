@@ -189,9 +189,8 @@ with tab1:
 
         if st.button("Translate & Export MM SRT", type="primary"):
             model = genai.GenerativeModel("gemini-2.5-flash")
+            st.session_state["translate_results"] = []
 
-            # ── Pass 1: process all files, collect results ──
-            results = []  # list of {name, srt, ts_issues, error}
             for file_idx, uploaded_file in enumerate(uploaded_files):
                 st.markdown(f"**[{file_idx+1}/{len(uploaded_files)}] ဘာသာပြန်နေသည်: `{uploaded_file.name}`**")
                 srt_content = uploaded_file.read().decode("utf-8")
@@ -211,35 +210,39 @@ with tab1:
                     translated_srt = "\n\n".join(translated_blocks)
                     status_text.text("Timestamp စစ်ဆေးနေသည်...")
                     translated_srt, ts_issues = fix_srt_timestamps(translated_srt)
-                    status_text.text(f"✅ ပြီးစီးသည်!")
+                    status_text.text("✅ ပြီးစီးသည်!")
                     progress_bar.progress(1.0)
-                    results.append({"name": uploaded_file.name, "srt": translated_srt, "ts_issues": ts_issues, "error": None})
+                    st.session_state["translate_results"].append({
+                        "name": uploaded_file.name,
+                        "srt": translated_srt.encode("utf-8"),
+                        "ts_issues": ts_issues,
+                        "error": None,
+                    })
                 except Exception as e:
                     status_text.text("❌ အမှားဖြစ်သည်။")
-                    results.append({"name": uploaded_file.name, "srt": None, "ts_issues": [], "error": str(e)})
+                    st.session_state["translate_results"].append({
+                        "name": uploaded_file.name, "srt": None, "ts_issues": [], "error": str(e)
+                    })
 
-            # ── Build ZIP from all results ──
+        if st.session_state.get("translate_results"):
+            results = st.session_state["translate_results"]
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                 for r in results:
                     if r["srt"]:
-                        zf.writestr(r["name"], r["srt"].encode("utf-8"))
+                        zf.writestr(r["name"], r["srt"])
             zip_buffer.seek(0)
 
             st.divider()
-            st.balloons()
-
-            # ── Download All button (top) ──
             st.download_button(
                 label=f"📦 Download All ({len([r for r in results if r['srt']])} files) — ZIP",
                 data=zip_buffer,
                 file_name="translated_subtitles.zip",
                 mime="application/zip",
                 use_container_width=True,
+                key="dl_translate_all",
             )
             st.caption("ZIP ကို ဖြည်၍ မူရင်းဖိုင်တွဲတွင် ထည့်သောအခါ ဖိုင်များ အစားထိုးမည်ဖြစ်သည်။")
-
-            # ── Per-file results with individual buttons ──
             for file_idx, r in enumerate(results):
                 st.divider()
                 st.markdown(f"### [{file_idx+1}] `{r['name']}`")
@@ -274,25 +277,27 @@ with tab2:
         st.info(f"ဖိုင် {len(fix_files)} ဖိုင် ရွေးချယ်ထားသည်။")
 
         if st.button("Fix Timestamps", type="primary"):
-
-            # ── Pass 1: process all files ──
-            results = []
+            st.session_state["fix_results"] = []
             for fix_file in fix_files:
                 raw = fix_file.read().decode("utf-8")
                 fixed_srt, issues = fix_srt_timestamps(raw)
-                results.append({"name": fix_file.name, "srt": fixed_srt, "issues": issues})
+                st.session_state["fix_results"].append({
+                    "name": fix_file.name,
+                    "srt": fixed_srt.encode("utf-8"),
+                    "issues": issues,
+                })
 
-            # ── Build ZIP ──
+        if st.session_state.get("fix_results"):
+            results = st.session_state["fix_results"]
             total_issues = sum(len(r["issues"]) for r in results)
+
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                 for r in results:
-                    zf.writestr(r["name"], r["srt"].encode("utf-8"))
+                    zf.writestr(r["name"], r["srt"])
             zip_buffer.seek(0)
 
             st.divider()
-
-            # ── Download All button (top) ──
             all_label = f"📦 Download All ({len(results)} files) — ZIP"
             if total_issues:
                 all_label += f"  •  {total_issues} fixes applied"
@@ -302,10 +307,10 @@ with tab2:
                 file_name="fixed_subtitles.zip",
                 mime="application/zip",
                 use_container_width=True,
+                key="dl_fix_all",
             )
             st.caption("ZIP ကို ဖြည်၍ မူရင်းဖိုင်တွဲတွင် ထည့်သောအခါ ဖိုင်များ အစားထိုးမည်ဖြစ်သည်။")
 
-            # ── Per-file results with individual buttons ──
             for file_idx, r in enumerate(results):
                 st.divider()
                 st.markdown(f"### [{file_idx+1}] `{r['name']}`")
