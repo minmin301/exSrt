@@ -122,7 +122,10 @@ def fix_srt_timestamps(content):
 
                 duration_ms = end_ms - start_ms
                 if duration_ms > MAX_SUBTITLE_DURATION_MS:
-                    reasons.append(f"too long ({duration_ms//1000}s)")
+                    fixed_end_ms = start_ms + 5000  # cap at 5 seconds
+                    end = ms_to_ts(fixed_end_ms)
+                    end_ms = fixed_end_ms
+                    reasons.append(f"too long ({duration_ms//1000}s→5s)")
 
                 fixed_line = f"{start} --> {end}"
                 if fixed_line != original or reasons:
