@@ -15,9 +15,21 @@ genai.configure(api_key=API_KEY)
 CHUNK_SIZE = 50
 
 
+def normalize_newlines(content):
+    return content.replace('\r\n', '\n').replace('\r', '\n')
+
+
 def parse_srt(content):
-    blocks = re.split(r'\n\n+', content.strip())
+    content = normalize_newlines(content)
+    blocks = re.split(r'\n{2,}', content.strip())
     return [b.strip() for b in blocks if b.strip()]
+
+
+def clean_ai_output(text):
+    # Remove markdown code fences the AI sometimes adds
+    text = re.sub(r'^```[^\n]*\n', '', text.strip())
+    text = re.sub(r'\n```$', '', text.strip())
+    return text.strip()
 
 
 def translate_chunk(model, blocks):
@@ -31,7 +43,7 @@ def translate_chunk(model, blocks):
         f"{chunk_text}"
     )
     response = model.generate_content(prompt)
-    return response.text.strip()
+    return clean_ai_output(response.text)
 
 
 TIMESTAMP_LINE = re.compile(
@@ -72,6 +84,7 @@ MAX_SUBTITLE_DURATION_MS = 10_000
 
 
 def fix_srt_timestamps(content):
+    content = normalize_newlines(content)
     blocks = parse_srt(content)
     fixed_blocks = []
     issues = []
