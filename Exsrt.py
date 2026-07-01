@@ -98,7 +98,7 @@ with st.expander("📊 API Usage / Limits"):
             "တကယ့် usage ကို [Google AI Studio](https://aistudio.google.com/app/apikey) တွင် စစ်ဆေးနိုင်ပါသည်။"
         )
 
-CHUNK_SIZE = 50
+CHUNK_SIZE = 35
 
 
 def normalize_newlines(content):
@@ -185,7 +185,7 @@ def translate_chunk_github(token, blocks):
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.3,
         },
-        timeout=120,
+        timeout=180,
     )
     resp.raise_for_status()
     st.session_state["github_rate_limit"] = {
@@ -416,7 +416,10 @@ with tab1:
                 translated_blocks = []
                 try:
                     for i, chunk in enumerate(chunks):
-                        status_text.text(f"({min((i+1)*CHUNK_SIZE, total_blocks)}/{total_blocks} subtitles)")
+                        status_text.text(
+                            f"Processing chunk {i+1} of {len(chunks)} "
+                            f"({min((i+1)*CHUNK_SIZE, total_blocks)}/{total_blocks} subtitles)"
+                        )
                         if provider == "gemini":
                             result = translate_chunk_gemini(model, chunk)
                         elif provider == "groq":
@@ -429,7 +432,7 @@ with tab1:
                             result = translate_chunk_cohere(COHERE_API_KEY, chunk)
                         translated_blocks.append(result)
                         progress_bar.progress((i + 1) / len(chunks))
-                        time.sleep(0.3)
+                        time.sleep(1)
                     translated_srt = "\n\n".join(translated_blocks)
                     status_text.text("Timestamp စစ်ဆေးနေသည်...")
                     translated_srt, ts_issues = fix_srt_timestamps(translated_srt)
