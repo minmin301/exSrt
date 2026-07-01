@@ -28,6 +28,31 @@ provider_label = st.radio(
 )
 provider = PROVIDERS[provider_label]
 
+with st.expander("📊 API Usage / Limits"):
+    if provider == "groq":
+        rl = st.session_state.get("groq_rate_limit")
+        if rl:
+            col1, col2 = st.columns(2)
+            col1.metric(
+                "Requests remaining",
+                f"{rl['remaining_requests']} / {rl['limit_requests']}",
+            )
+            col2.metric(
+                "Tokens remaining (per min)",
+                f"{rl['remaining_tokens']} / {rl['limit_tokens']}",
+            )
+            st.caption(
+                f"Reset in: {rl['reset_requests']} (requests) • {rl['reset_tokens']} (tokens)"
+            )
+        else:
+            st.caption("Groq နဲ့ တစ်ကြိမ် translate run ပြီးမှ live usage ဒီနေရာမှာ ပြပါမည်။")
+    else:
+        st.caption(
+            "Gemini API က quota/usage ကို API ဖြင့် တိုက်ရိုက် မပြသနိုင်ပါ (Google မှ endpoint မရှိပါ)။  \n"
+            "**gemini-2.5-flash free tier (reference):** 10 requests/min • 250 requests/day • 250K tokens/min  \n"
+            "တကယ့် usage ကို [Google AI Studio](https://aistudio.google.com/app/apikey) တွင် စစ်ဆေးနိုင်ပါသည်။"
+        )
+
 CHUNK_SIZE = 50
 
 
@@ -68,11 +93,20 @@ def translate_chunk_gemini(model, blocks):
 
 def translate_chunk_groq(client, blocks):
     prompt = build_translate_prompt(blocks)
-    response = client.chat.completions.create(
+    raw = client.chat.completions.with_raw_response.create(
         model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
     )
+    st.session_state["groq_rate_limit"] = {
+        "remaining_requests": raw.headers.get("x-ratelimit-remaining-requests"),
+        "limit_requests": raw.headers.get("x-ratelimit-limit-requests"),
+        "remaining_tokens": raw.headers.get("x-ratelimit-remaining-tokens"),
+        "limit_tokens": raw.headers.get("x-ratelimit-limit-tokens"),
+        "reset_requests": raw.headers.get("x-ratelimit-reset-requests"),
+        "reset_tokens": raw.headers.get("x-ratelimit-reset-tokens"),
+    }
+    response = raw.parse()
     return clean_ai_output(response.choices[0].message.content)
 
 
