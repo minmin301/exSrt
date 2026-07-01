@@ -1,5 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
+from groq import Groq
 import re
 import time
 import zipfile
@@ -7,10 +8,25 @@ import io
 
 st.set_page_config(page_title="Gemini SRT Translator", page_icon="🎬", layout="centered")
 st.title("🎬 Gemini SRT Subtitle Translator")
-st.write("အင်္ဂလိပ် SRT ဖိုင်ကို ထည့်သွင်းပြီး Gemini AI သုံး၍ မြန်မာလို ဆီလျော်စွာ ပြန်ဆိုပါ")
+st.write("အင်္ဂလိပ် SRT ဖိုင်ကို ထည့်သွင်းပြီး AI သုံး၍ မြန်မာလို ဆီလျော်စွာ ပြန်ဆိုပါ")
 
-API_KEY = st.secrets["GEMINI_API_KEY"]
-genai.configure(api_key=API_KEY)
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY")
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+PROVIDERS = {
+    "Gemini (Google)": "gemini",
+    "Groq (Llama)": "groq",
+}
+provider_label = st.radio(
+    "🔑 API Provider ရွေးချယ်ပါ (Gemini limit ပြည့်ပါက Groq ကို ပြောင်းသုံးနိုင်သည်)",
+    list(PROVIDERS.keys()),
+    horizontal=True,
+    key="api_provider",
+)
+provider = PROVIDERS[provider_label]
 
 CHUNK_SIZE = 50
 
@@ -32,9 +48,9 @@ def clean_ai_output(text):
     return text.strip()
 
 
-def translate_chunk(model, blocks):
+def build_translate_prompt(blocks):
     chunk_text = "\n\n".join(blocks)
-    prompt = (
+    return (
         "You are a professional movie subtitle translator. "
         "Translate the following English SRT subtitle blocks into Burmese (Myanmar Language) naturally and contextually. "
         "CRITICAL: Keep all subtitle numbers and timestamps (e.g., 00:02:50,904 --> 00:02:52,929) exactly as they are. "
@@ -42,8 +58,22 @@ def translate_chunk(model, blocks):
         "Return ONLY the translated SRT blocks in the same format, nothing else.\n\n"
         f"{chunk_text}"
     )
+
+
+def translate_chunk_gemini(model, blocks):
+    prompt = build_translate_prompt(blocks)
     response = model.generate_content(prompt)
     return clean_ai_output(response.text)
+
+
+def translate_chunk_groq(client, blocks):
+    prompt = build_translate_prompt(blocks)
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3,
+    )
+    return clean_ai_output(response.choices[0].message.content)
 
 
 TIMESTAMP_LINE = re.compile(
@@ -191,7 +221,16 @@ with tab1:
         st.info(f"ဖိုင် {len(uploaded_files)} ဖိုင် ရွေးချယ်ထားသည်။")
 
         if st.button("Translate & Export MM SRT", type="primary"):
-            model = genai.GenerativeModel("gemini-2.5-flash")
+            if provider == "gemini":
+                if not GEMINI_API_KEY:
+                    st.error("GEMINI_API_KEY ကို secrets.toml တွင် သတ်မှတ်ထားခြင်း မရှိပါ။")
+                    st.stop()
+                model = genai.GenerativeModel("gemini-2.5-flash")
+            else:
+                if not GROQ_API_KEY:
+                    st.error("GROQ_API_KEY ကို secrets.toml တွင် သတ်မှတ်ထားခြင်း မရှိပါ။")
+                    st.stop()
+                groq_client = Groq(api_key=GROQ_API_KEY)
             st.session_state["translate_results"] = []
 
             for file_idx, uploaded_file in enumerate(uploaded_files):
@@ -206,7 +245,10 @@ with tab1:
                 try:
                     for i, chunk in enumerate(chunks):
                         status_text.text(f"({min((i+1)*CHUNK_SIZE, total_blocks)}/{total_blocks} subtitles)")
-                        result = translate_chunk(model, chunk)
+                        if provider == "gemini":
+                            result = translate_chunk_gemini(model, chunk)
+                        else:
+                            result = translate_chunk_groq(groq_client, chunk)
                         translated_blocks.append(result)
                         progress_bar.progress((i + 1) / len(chunks))
                         time.sleep(0.3)
